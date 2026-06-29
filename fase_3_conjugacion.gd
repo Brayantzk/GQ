@@ -466,3 +466,4 @@ func _concluir_compilacion_genoma() -> void:
 		gestor.set("fase_evolutiva_actual", 4)
 		if gestor.has_method("transicionar_escena"):
 			gestor.transicionar_escena(0)
+	
