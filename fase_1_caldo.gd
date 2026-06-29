@@ -210,7 +210,7 @@ func _ejecutar_replicacion_autocatalitica():
 	GestorQuimico.transicionar_escena(0) # Va a la escena de la Mesa, pero la Era es la 2
 
 func _construir_ui():
-	var canvas = CanvasLayer.new(); ui_texto = Label.new(); ui_texto.position = Vector2(20, 20); ui_texto.add_theme_font_size_override("font_size", 22); ui_texto.add_theme_color_override("font_color", Color(0.2, 1.0, 0.8)); canvas.add_child(ui_texto); add_child(canvas)
+	var canvas = CanvasLayer.new(); ui_texto = Label.new(); ui_texto.	position = Vector2(20, 20); ui_texto.add_theme_font_size_override("font_size", 22); ui_texto.add_theme_color_override("font_color", Color(0.2, 1.0, 0.8)); canvas.add_child(ui_texto); add_child(canvas)
 
 func _actualizar_ui():
 	var text = "MATRIZ DE POLIMERIZACIÓN (Mundo de ARN)\n"
