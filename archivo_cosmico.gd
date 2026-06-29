@@ -25,15 +25,24 @@ var cam_pos_base: Vector3 = pos_mesa
 var cam_rot_base: Vector3 = rot_mesa
 var tween_camara: Tween
 
+# UI para Explicaciones Universales y Bautismo
+var ui_layer: CanvasLayer
+var panel_tooltip: Panel
+var lbl_tooltip_tit: Label
+var lbl_tooltip_desc: RichTextLabel
+var panel_bautismo: Panel
+var input_bautismo: LineEdit
+var carta_a_bautizar: CartaRuna = null
+
 class CartaRuna extends StaticBody3D:
-	var simbolo: String
+	var simbolo_interno: String
 	var pos_original: Vector3
 	var en_seleccion: bool = false
 	var mat_base: StandardMaterial3D
-	var malla_mesh: MeshInstance3D
+	var lbl: Label3D
 	
 	func inicializar(s: String, p: Vector3) -> void:
-		simbolo = s
+		simbolo_interno = s
 		pos_original = p
 		position = p
 		add_to_group("cartas")
@@ -44,70 +53,78 @@ class CartaRuna extends StaticBody3D:
 		col.shape = box
 		add_child(col)
 		
-		malla_mesh = MeshInstance3D.new()
+		var malla_mesh := MeshInstance3D.new()
 		var box_mesh := BoxMesh.new()
 		box_mesh.size = Vector3(1.2, 0.2, 1.8)
 		malla_mesh.mesh = box_mesh
 		
 		mat_base = StandardMaterial3D.new()
 		mat_base.albedo_color = Color(0.1, 0.1, 0.12)
-		mat_base.roughness = 0.8
-		mat_base.metallic = 0.5
 		mat_base.emission_enabled = true
 		mat_base.emission = Color.BLACK
 		malla_mesh.material_override = mat_base
 		add_child(malla_mesh)
 		
-		var lbl := Label3D.new()
-		lbl.text = simbolo
+		lbl = Label3D.new()
 		lbl.outline_size = 10
 		lbl.position = Vector3(0, 0.11, 0)
 		lbl.rotation_degrees.x = -90
-		var color := Color.WHITE
+		_actualizar_texto_visual()
 		
+		var color := Color.WHITE
 		var fase: int = GestorQuimico.fase_evolutiva_actual
 		
-		# EXTRACCIÓN SEGURA (Evita Crash si el símbolo no existe)
+		# FIX: Bloques match estructurados correctamente con saltos de línea para el parser de Godot 4
 		if fase == 1:
-			lbl.font_size = 140
-			var data: Dictionary = GestorQuimico.TABLA_PERIODICA.get(simbolo, {"rol": "inerte"})
+			lbl.font_size = 80
+			var data: Dictionary = GestorQuimico.TABLA_PERIODICA.get(simbolo_interno, {"rol": "inerte"})
 			match str(data.get("rol")):
-				"estructural", "estructural_pesado": color = Color(0.6, 0.6, 0.6)
-				"energia": color = Color(1.0, 0.8, 0.2)
-				"oxidante", "radical": color = Color(0.9, 0.4, 0.4)
-				"comodin", "metal_transicion": color = Color(0.6, 0.1, 1.0)
-				"reactivo": color = Color(0.3, 0.5, 1.0)
-				"radiactivo": color = Color(0.2, 1.0, 0.2)
-				
+				"estructural", "estructural_pesado": 
+					color = Color(0.6, 0.6, 0.6)
+				"energia": 
+					color = Color(1.0, 0.8, 0.2)
+				"oxidante", "radical": 
+					color = Color(0.9, 0.4, 0.4)
+				"comodin", "metal_transicion", "reactivo": 
+					color = Color(0.3, 0.5, 1.0)
 		elif fase in [2, 3]:
-			lbl.font_size = 50 
-			var data: Dictionary = GestorQuimico.MACROMOLECULAS.get(simbolo, {"rol": "estructura"})
-			match str(data.get("rol")):
-				"membrana": color = Color(0.9, 0.9, 0.2) 
-				"informacion": color = Color(0.2, 0.8, 1.0) 
-				"enzima": color = Color(0.8, 0.2, 0.8) 
-				"estructura": color = Color(0.8, 0.3, 0.3)
-				
-		else: 
 			lbl.font_size = 40 
-			var data: Dictionary = GestorQuimico.TIPOS_CELULARES.get(simbolo, {"rol": "cobertura"})
+			var data: Dictionary = GestorQuimico.MACROMOLECULAS.get(simbolo_interno, {"rol": "estructura"})
 			match str(data.get("rol")):
-				"cobertura": color = Color(0.4, 0.8, 0.9) 
-				"motor": color = Color(0.9, 0.3, 0.3)     
-				"nervioso": color = Color(1.0, 0.9, 0.1)  
-				"reserva": color = Color(0.9, 0.6, 0.2)   
+				"membrana": 
+					color = Color(0.9, 0.9, 0.2)
+				"informacion": 
+					color = Color(0.2, 0.8, 1.0)
+				"enzima": 
+					color = Color(0.8, 0.2, 0.8)
+				"estructura": 
+					color = Color(0.8, 0.3, 0.3)
+		else: 
+			lbl.font_size = 35 
+			var data: Dictionary = GestorQuimico.TIPOS_CELULARES.get(simbolo_interno, {"rol": "cobertura"})
+			match str(data.get("rol")):
+				"cobertura": 
+					color = Color(0.4, 0.8, 0.9)
+				"motor": 
+					color = Color(0.9, 0.3, 0.3)
+				"nervioso": 
+					color = Color(1.0, 0.9, 0.1)
+				"reserva": 
+					color = Color(0.9, 0.6, 0.2)   
 				
 		lbl.modulate = color
 		mat_base.set_meta("glow", color)
 		add_child(lbl)
 
+	func _actualizar_texto_visual() -> void:
+		lbl.text = GestorQuimico.obtener_nombre_carta(simbolo_interno)
+
 	func set_hover(active: bool) -> void:
-		if en_seleccion: return
+		if en_seleccion: 
+			return
 		var t := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		if active: 
-			var glow_c = mat_base.get_meta("glow")
-			if typeof(glow_c) == TYPE_COLOR:
-				mat_base.emission = glow_c * 0.5
+			mat_base.emission = (mat_base.get_meta("glow") as Color) * 0.5
 			t.tween_property(self, "position:y", pos_original.y + 0.3, 0.15)
 		else: 
 			mat_base.emission = Color.BLACK
@@ -117,8 +134,7 @@ func _ready() -> void:
 	get_tree().paused = false
 	randomize()
 	_construir_entorno()
-	texto_dialogo.text = ""
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE 
+	_construir_ui_tooltips()
 	
 	var fase: int = GestorQuimico.fase_evolutiva_actual
 	var pool_fase_2: Array = ["Lípido", "Lípido", "Lípido", "ARN_m", "ARN_m", "Péptido", "Péptido", "Ribozima"]
@@ -126,18 +142,21 @@ func _ready() -> void:
 	
 	var offset_x: float = -((14 / 2.0) * 1.3) / 2.0
 	for i in range(14):
-		var fila: float = floor(i / 7.0)
-		var col: int = i % 7
-		var pos := Vector3(offset_x + (col * 1.4), 0.1, 1.5 + (fila * 1.8))
+		var pos := Vector3(offset_x + ((i % 7) * 1.4), 0.1, 1.5 + (floor(i / 7.0) * 1.8))
 		var carta := CartaRuna.new()
-		var gen: String = ""
 		
-		if fase == 1: 
-			var random_atomo: String = GestorQuimico.extraer_atomo_cuantico()
-			gen = "C" if i == 0 else ("Og" if i == 1 else random_atomo)
-		elif fase in [2, 3]: 
+		# FIX: Asignación de genoma estructurada limpiamente sin encadenamiento de ternarios agresivos
+		var gen: String = ""
+		if fase == 1:
+			if i == 0:
+				gen = "C"
+			elif i == 1:
+				gen = "Og"
+			else:
+				gen = GestorQuimico.extraer_atomo_cuantico()
+		elif fase in [2, 3]:
 			gen = str(pool_fase_2[randi() % pool_fase_2.size()])
-		else: 
+		else:
 			gen = str(pool_fase_4[randi() % pool_fase_4.size()])
 			
 		carta.inicializar(gen, pos)
@@ -149,26 +168,71 @@ func _ready() -> void:
 	_cambiar_vista("ENTE")
 	
 	if fase == 1:
-		await hablar("FORJA TU GENOMA. ESCRIBE CON MATERIA.")
+		await hablar("FORJA TU GENOMA. BAUTIZA TUS DESCUBRIMIENTOS.")
 	elif fase in [2, 3]:
-		luz_cenital.light_color = Color(0.6, 0.2, 0.8)
-		for o in ojos_ente.get_children(): o.material_override.emission = Color(0.6, 0.2, 0.8)
-		await hablar("ERA PROTOCELULAR.\nENCLOSA TU POLÍMERO EN BICAPAS LIPÍDICAS.")
+		await hablar("ERA PROTOCELULAR.")
 	else:
-		luz_cenital.light_color = Color(1.0, 0.6, 0.2) 
-		for o in ojos_ente.get_children(): o.material_override.emission = Color(1.0, 0.6, 0.2)
-		await hablar("HAS ROTO LA BARRERA UNICELULAR.")
-		await hablar("ESPECIALIZA TUS CÉLULAS. CREA TEJIDOS Y ÓRGANOS.")
+		await hablar("CREA TEJIDOS Y ÓRGANOS.")
 		
 	_cambiar_vista("MESA")
 	estado_juego = "DRAFTING"
+
+func _construir_ui_tooltips() -> void:
+	ui_layer = CanvasLayer.new()
+	add_child(ui_layer)
+	
+	panel_tooltip = Panel.new()
+	panel_tooltip.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	panel_tooltip.offset_left = -350
+	panel_tooltip.offset_top = -150
+	panel_tooltip.offset_right = -20
+	panel_tooltip.offset_bottom = -20
+	panel_tooltip.visible = false
+	
+	var estilo := StyleBoxFlat.new()
+	estilo.bg_color = Color(0.05, 0.08, 0.12, 0.95)
+	estilo.border_width_left = 2
+	estilo.border_width_top = 2
+	estilo.border_color = Color(0.5, 0.5, 0.5)
+	panel_tooltip.add_theme_stylebox_override("panel", estilo)
+	
+	lbl_tooltip_tit = Label.new()
+	lbl_tooltip_tit.position = Vector2(15, 10)
+	lbl_tooltip_tit.add_theme_font_size_override("font_size", 20)
+	panel_tooltip.add_child(lbl_tooltip_tit)
+	
+	lbl_tooltip_desc = RichTextLabel.new()
+	lbl_tooltip_desc.position = Vector2(15, 40)
+	lbl_tooltip_desc.size = Vector2(320, 90)
+	panel_tooltip.add_child(lbl_tooltip_desc)
+	ui_layer.add_child(panel_tooltip)
+	
+	panel_bautismo = Panel.new()
+	panel_bautismo.set_anchors_preset(Control.PRESET_CENTER)
+	panel_bautismo.offset_left = -150
+	panel_bautismo.offset_top = -50
+	panel_bautismo.offset_right = 150
+	panel_bautismo.offset_bottom = 50
+	panel_bautismo.visible = false
+	panel_bautismo.add_theme_stylebox_override("panel", estilo)
+	
+	var lbl_baut := Label.new()
+	lbl_baut.text = "Bautizar Función:"
+	lbl_baut.position = Vector2(10, 10)
+	panel_bautismo.add_child(lbl_baut)
+	
+	input_bautismo = LineEdit.new()
+	input_bautismo.position = Vector2(10, 40)
+	input_bautismo.size = Vector2(280, 40)
+	input_bautismo.text_submitted.connect(_on_bautizo_completado)
+	panel_bautismo.add_child(input_bautismo)
+	ui_layer.add_child(panel_bautismo)
 
 func _construir_entorno() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.01, 0.01, 0.015)
 	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.05
 	env.glow_enabled = true
 	env.glow_intensity = 1.5
 	var we := WorldEnvironment.new()
@@ -218,7 +282,6 @@ func _construir_entorno() -> void:
 	texto_dialogo.position = Vector3(0, 2.0, -3.5)
 	texto_dialogo.rotation_degrees.x = -15
 	texto_dialogo.modulate = Color(0.8, 0.9, 1.0)
-	texto_dialogo.autowrap_mode = TextServer.AUTOWRAP_WORD
 	texto_dialogo.width = 1200.0
 	add_child(texto_dialogo)
 	
@@ -230,11 +293,11 @@ func _construir_entorno() -> void:
 	add_child(texto_stats)
 	
 	texto_controles = Label3D.new()
-	texto_controles.text = "[W] ENTE | [S] MESA | [TAB] VER CÓDEX"
+	texto_controles.text = "[Click Izq] Seleccionar | [Click Der] Bautizar Carta"
 	texto_controles.font_size = 24
 	texto_controles.position = Vector3(0, 0.01, 3.5)
 	texto_controles.rotation_degrees.x = -90
-	texto_controles.modulate = Color(0.3, 0.3, 0.3)
+	texto_controles.modulate = Color(0.4, 0.4, 0.4)
 	add_child(texto_controles)
 	
 	boton_incubar = StaticBody3D.new()
@@ -275,15 +338,10 @@ func _process(delta: float) -> void:
 	var offset_x: float = (raton_pos.x / screen_size.x) - 0.5
 	var offset_y: float = (raton_pos.y / screen_size.y) - 0.5
 	
-	var sway_pos := Vector3(offset_x * 4.0, -offset_y * 2.5, 0)
-	var sway_rot := Vector3(-offset_y * 0.5, -offset_x * 0.5, 0)
-	
 	if not (tween_camara and tween_camara.is_running()):
-		var target_pos := cam_pos_base + sway_pos
-		var target_rot := cam_rot_base + sway_rot
-		camara.position = camara.position.lerp(target_pos, delta * 4.0)
-		camara.rotation.x = lerp_angle(camara.rotation.x, target_rot.x, delta * 4.0)
-		camara.rotation.y = lerp_angle(camara.rotation.y, target_rot.y, delta * 4.0)
+		camara.position = camara.position.lerp(cam_pos_base + Vector3(offset_x * 4.0, -offset_y * 2.5, 0), delta * 4.0)
+		camara.rotation.x = lerp_angle(camara.rotation.x, cam_rot_base.x - offset_y * 0.5, delta * 4.0)
+		camara.rotation.y = lerp_angle(camara.rotation.y, cam_rot_base.y - offset_x * 0.5, delta * 4.0)
 		
 	ojos_ente.position.y = 3.5 + sin(tiempo * 1.2) * 0.08
 	if escribiendo: 
@@ -302,41 +360,36 @@ func hablar(texto: String) -> void:
 	await get_tree().create_timer(1.0).timeout
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.is_echo() and event.keycode == KEY_TAB:
-		_alternar_codex()
+	if estado_juego != "DRAFTING" or escribiendo or panel_bautismo.visible: 
 		return
-			
-	if estado_juego != "DRAFTING" or escribiendo: return
-	
-	if event is InputEventKey and event.pressed and not event.is_echo():
-		if event.keycode == KEY_W and objetivo_camara == "MESA": _cambiar_vista("ENTE")
-		elif event.keycode == KEY_S and objetivo_camara == "ENTE": _cambiar_vista("MESA")
 		
-	if objetivo_camara != "MESA": return
-	
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			if ray_hovered is CartaRuna: _alternar_carta(ray_hovered)
-			elif is_instance_valid(ray_hovered) and ray_hovered.has_meta("es_boton"): _juzgar()
-		elif event.button_index == MOUSE_BUTTON_RIGHT and cartas_seleccionadas.size() > 0:
-			_alternar_carta(cartas_seleccionadas[-1])
+			if ray_hovered is CartaRuna: 
+				_alternar_carta(ray_hovered)
+			elif is_instance_valid(ray_hovered) and ray_hovered.has_meta("es_boton"): 
+				_juzgar()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and ray_hovered is CartaRuna:
+			_abrir_bautismo(ray_hovered)
 
-func _cambiar_vista(vista: String) -> void:
-	objetivo_camara = vista
+func _abrir_bautismo(carta: CartaRuna) -> void:
+	carta_a_bautizar = carta
+	panel_bautismo.visible = true
+	input_bautismo.text = GestorQuimico.obtener_nombre_carta(carta.simbolo_interno)
+	input_bautismo.grab_focus()
+
+func _on_bautizo_completado(nuevo_nombre: String) -> void:
+	panel_bautismo.visible = false
+	if nuevo_nombre.strip_edges() != "" and is_instance_valid(carta_a_bautizar):
+		GestorQuimico.nomenclatura_jugador[carta_a_bautizar.simbolo_interno] = nuevo_nombre
+		for c in get_tree().get_nodes_in_group("cartas"):
+			if c.simbolo_interno == carta_a_bautizar.simbolo_interno: 
+				c._actualizar_texto_visual()
+	carta_a_bautizar = null
 	_limpiar_hover()
-	
-	if tween_camara: tween_camara.kill()
-	tween_camara = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	
-	if vista == "ENTE":
-		tween_camara.parallel().tween_property(self, "cam_pos_base", pos_ente, 0.6)
-		tween_camara.parallel().tween_property(self, "cam_rot_base", rot_ente, 0.6)
-	else:
-		tween_camara.parallel().tween_property(self, "cam_pos_base", pos_mesa, 0.6)
-		tween_camara.parallel().tween_property(self, "cam_rot_base", rot_mesa, 0.6)
 
 func _physics_process(_delta: float) -> void:
-	if estado_juego != "DRAFTING" or escribiendo or objetivo_camara != "MESA": 
+	if estado_juego != "DRAFTING" or escribiendo or panel_bautismo.visible: 
 		_limpiar_hover()
 		return
 		
@@ -350,23 +403,34 @@ func _physics_process(_delta: float) -> void:
 		if ray_hovered != obj:
 			_limpiar_hover()
 			ray_hovered = obj
-			if obj is CartaRuna: obj.set_hover(true)
+			if obj is CartaRuna: 
+				obj.set_hover(true)
+				_mostrar_tooltip(obj.simbolo_interno)
 			elif obj.has_meta("es_boton"): 
-				var mesh = obj.get_child(1) as MeshInstance3D
-				if is_instance_valid(mesh):
-					mesh.material_override.emission = Color(0.8, 0.1, 0.1)
+				(obj.get_child(1) as MeshInstance3D).material_override.emission = Color(0.8, 0.1, 0.1)
 	else: 
 		_limpiar_hover()
+
+func _mostrar_tooltip(simbolo: String) -> void:
+	panel_tooltip.visible = true
+	var fase: int = GestorQuimico.fase_evolutiva_actual
+	lbl_tooltip_tit.text = GestorQuimico.obtener_nombre_carta(simbolo) + " (" + simbolo + ")"
+	
+	if fase == 1: 
+		lbl_tooltip_desc.text = GestorQuimico.TABLA_PERIODICA.get(simbolo, {}).get("desc", "Desconocido.")
+	elif fase in [2,3]: 
+		lbl_tooltip_desc.text = GestorQuimico.MACROMOLECULAS.get(simbolo, {}).get("desc", "Componente orgánico.")
+	else: 
+		lbl_tooltip_desc.text = GestorQuimico.TIPOS_CELULARES.get(simbolo, {}).get("desc", "Tejido especializado.")
 
 func _limpiar_hover() -> void:
 	if is_instance_valid(ray_hovered):
 		if ray_hovered is CartaRuna: 
 			ray_hovered.set_hover(false)
 		elif ray_hovered.has_meta("es_boton"): 
-			var mesh = ray_hovered.get_child(1) as MeshInstance3D
-			if is_instance_valid(mesh):
-				mesh.material_override.emission = Color(0.4, 0.0, 0.0)
-		ray_hovered = null
+			(ray_hovered.get_child(1) as MeshInstance3D).material_override.emission = Color(0.4, 0.0, 0.0)
+	ray_hovered = null
+	panel_tooltip.visible = false
 
 func _alternar_carta(carta: CartaRuna) -> void:
 	var t := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -375,74 +439,67 @@ func _alternar_carta(carta: CartaRuna) -> void:
 		cartas_mesa.erase(carta)
 		cartas_seleccionadas.append(carta)
 		carta.en_seleccion = true
-		_reordenar(t)
 	else:
 		cartas_seleccionadas.erase(carta)
 		cartas_mesa.append(carta)
 		carta.en_seleccion = false
 		t.tween_property(carta, "position", carta.pos_original, 0.4)
-		_reordenar(t)
-	_actualizar_stats()
-
-func _reordenar(t: Tween) -> void:
+	
 	var sep: float = 1.2
 	var ancho: float = (cartas_seleccionadas.size() - 1) * sep
 	var inicio: float = -ancho / 2.0
 	for i in range(cartas_seleccionadas.size()):
 		var c: CartaRuna = cartas_seleccionadas[i]
-		var dest := Vector3(inicio + (i * sep), 0.1, -1.0)
-		t.parallel().tween_property(c, "position", dest, 0.4)
+		t.parallel().tween_property(c, "position", Vector3(inicio + (i * sep), 0.1, -1.0), 0.4)
 		t.parallel().tween_property(c, "rotation_degrees", Vector3.ZERO, 0.4)
+	_actualizar_stats()
 
 func _actualizar_stats() -> void:
 	var arr: Array = []
-	for c in cartas_seleccionadas: arr.append(c.simbolo)
-	
+	for c in cartas_seleccionadas: 
+		arr.append(c.simbolo_interno)
+		
 	if arr.is_empty(): 
 		texto_stats.text = ""
 	else:
 		var fase: int = GestorQuimico.fase_evolutiva_actual
-		if fase == 1:
-			var sim = GestorQuimico.procesar_red_quimica(arr)
-			texto_stats.text = "-".join(arr) + "\nMasa: " + str(sim["peso_molecular"]) + "u | Enlaces Libres: " + str(sim["valencia_residual"])
-		elif fase in [2, 3]:
-			var sim = GestorQuimico.procesar_protocelula(arr)
-			texto_stats.text = "-".join(arr) + "\nMembrana: " + str(sim["stats_3d"]["integridad_membrana"]) + " | Info ARN: " + str(sim["stats_3d"]["procesamiento_info"])
-		else:
-			var sim = GestorQuimico.procesar_organismo(arr)
-			texto_stats.text = "-".join(arr) + "\nSalud: " + str(sim["stats_3d"]["salud"]) + " | Fuerza Motriz: " + str(sim["stats_3d"]["fuerza_motriz"])
+		if fase == 1: 
+			texto_stats.text = "Peso: " + str(GestorQuimico.procesar_red_quimica(arr)["peso_molecular"]) + "u"
+		elif fase in [2,3]: 
+			texto_stats.text = "Membrana: " + str(GestorQuimico.procesar_protocelula(arr)["stats_3d"]["integridad_membrana"])
+		else: 
+			texto_stats.text = "Salud: " + str(GestorQuimico.procesar_organismo(arr)["stats_3d"]["salud"])
+
+func _cambiar_vista(vista: String) -> void:
+	objetivo_camara = vista
+	_limpiar_hover()
+	if tween_camara: 
+		tween_camara.kill()
+		
+	tween_camara = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween_camara.parallel().tween_property(self, "cam_pos_base", pos_ente if vista == "ENTE" else pos_mesa, 0.6)
+	tween_camara.parallel().tween_property(self, "cam_rot_base", rot_ente if vista == "ENTE" else rot_mesa, 0.6)
 
 func _juzgar() -> void:
-	if cartas_seleccionadas.is_empty(): return
-	
+	if cartas_seleccionadas.is_empty(): 
+		return
+		
 	estado_juego = "EVALUANDO"
 	_cambiar_vista("ENTE")
-	await hablar("EVALUANDO VIABILIDAD...")
+	await hablar("EVALUANDO SÍNTESIS...")
+	
 	var arr: Array = []
-	for c in cartas_seleccionadas: arr.append(c.simbolo)
-	
+	for c in cartas_seleccionadas: 
+		arr.append(c.simbolo_interno)
+		
 	var fase: int = GestorQuimico.fase_evolutiva_actual
-	var resultado: Dictionary = {}
-	
-	if fase == 1: resultado = GestorQuimico.procesar_red_quimica(arr)
-	elif fase in [2, 3]: resultado = GestorQuimico.procesar_protocelula(arr)
-	else: resultado = GestorQuimico.procesar_organismo(arr)
+	var resultado: Dictionary = GestorQuimico.procesar_red_quimica(arr) if fase == 1 else (GestorQuimico.procesar_protocelula(arr) if fase in [2,3] else GestorQuimico.procesar_organismo(arr))
 	
 	if resultado.get("es_viable", false):
 		luz_cenital.light_color = Color(0.2, 1.0, 0.6)
 		await hablar("DISEÑO VIABLE.")
 		GestorQuimico.mazo_genetico.append({"secuencia": arr.duplicate(), "fenotipo": resultado})
-		
-		var masa_final: float = 0.0
-		if resultado.has("peso_molecular"): masa_final = float(resultado["peso_molecular"])
-		elif resultado.has("masa_celular"): masa_final = float(resultado["masa_celular"])
-		elif resultado.has("masa_total"): masa_final = float(resultado["masa_total"])
-			
-		GestorQuimico.registro_fosil.append({"era": "Era " + str(fase), "genotipo": arr.duplicate(), "masa": masa_final})
-		
-		if fase == 1: GestorQuimico.transicionar_escena(1)
-		elif fase in [2, 3]: GestorQuimico.transicionar_escena(2)
-		else: GestorQuimico.transicionar_escena(4) 
+		GestorQuimico.transicionar_escena(fase if fase == 1 else (2 if fase in [2,3] else 4))
 	else:
 		luz_cenital.light_color = Color(1.0, 0.2, 0.2)
 		await hablar("FALLO ESTRUCTURAL:\n" + str(resultado.get("motivo_fallo", "Inestable.")))
@@ -450,34 +507,3 @@ func _juzgar() -> void:
 		cartas_seleccionadas.clear()
 		_actualizar_stats()
 		estado_juego = "DRAFTING"
-
-func _alternar_codex() -> void:
-	var layer = get_node_or_null("CanvasCodex")
-	if layer: 
-		layer.queue_free()
-	else:
-		var cc := CanvasLayer.new()
-		cc.name = "CanvasCodex"
-		var bg := ColorRect.new()
-		bg.color = Color(0.01, 0.01, 0.02, 0.95)
-		bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-		cc.add_child(bg)
-		
-		var lbl := RichTextLabel.new()
-		lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
-		lbl.offset_left = 50; lbl.offset_top = 50; lbl.offset_right = -50; lbl.offset_bottom = -50
-		lbl.text = "[center][b]CÓDEX RIZOMÁTICO[/b][/center]\n\n[b]Reglas de la Era Actual (" + str(GestorQuimico.fase_evolutiva_actual) + "):[/b]\n"
-		
-		if GestorQuimico.fase_evolutiva_actual == 1:
-			lbl.text += "- Construye cadenas estables compartiendo valencias.\n- El Carbono/Silicio son columnas vertebrales indispensables.\n\n"
-		elif GestorQuimico.fase_evolutiva_actual in [2, 3]:
-			lbl.text += "- Exige bicapas de Lípidos o el medio acuático disolverá tu célula.\n- Requiere ARN_m para controlar las funciones de motilidad.\n\n"
-		else:
-			lbl.text += "- Las Células Epiteliales son obligatorias para no disolverse.\n- Los Miocitos necesitan Neuronas para accionarse correctamente.\n\n"
-			
-		lbl.text += "[b]Historial Fósil Registrado:[/b]\n"
-		for f in GestorQuimico.registro_fosil:
-			if typeof(f) == TYPE_DICTIONARY:
-				lbl.text += "- " + str(f.get("era", "")) + " | Genoma: " + str(f.get("genotipo", "")) + " | Masa: " + str(f.get("masa", 0.0)) + "u\n"
-		bg.add_child(lbl)
-		add_child(cc)
