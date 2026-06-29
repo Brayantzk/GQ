@@ -1,17 +1,11 @@
 extends Node3D
 
-# ==============================================================================
-# FASE 2: PROTOCÉLULA (V5.2 - FIX DE TIPADO ESTRICTO Y ECOSISTEMA)
-# Errores de inferencia eliminados. Casteo seguro garantizado.
-# ==============================================================================
-
 var celula_jugador: RigidBody3D
 var pivot_camara: Node3D
 var camara: Camera3D
 var ui_texto: Label
 
 var stats: Dictionary
-var integridad_membrana: float
 var energia_libre: float = 1000.0
 var energia_maxima: float = 1000.0 
 var genoma_secuencia: Array
@@ -19,7 +13,8 @@ var genoma_secuencia: Array
 var vesiculas_absorbidas: int = 0
 var meta_conjugacion: int = 8
 var juego_activo: bool = false
-var codex_abierto: bool = false 
+var meta_lipidos_alcanzada: bool = false
+var visual_membrana: MeshInstance3D
 
 var lista_bacterias_rojas: Array = []
 
@@ -31,39 +26,32 @@ void vertex() {
 	VERTEX += NORMAL * sin(VERTEX.x * 4.0 + TIME * 3.0) * 0.08;
 }
 void fragment() {
+	float fresnel = sqrt(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0));
 	ALBEDO = albedo_color.rgb;
-	ALPHA = albedo_color.a;
-	float fresnel = sqrt(1.0 - dot(NORMAL, VIEW));
-	EMISSION = albedo_color.rgb * fresnel * 2.5;
+	// Transparencia dinámica en el centro para ver los organelos, denso en bordes
+	ALPHA = (albedo_color.a * 0.3) + (fresnel * 0.6); 
+	EMISSION = albedo_color.rgb * fresnel * 2.0;
 }
 """
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	
-	# Extracción Segura Anti-Crash
-	var gestor = get_node_or_null("/root/GestorQuimico")
-	if not is_instance_valid(gestor) or gestor.get("mazo_genetico") == null or gestor.mazo_genetico.is_empty():
-		stats = {"velocidad_ciliar": 50.0, "integridad_membrana": 100.0, "radio_celular": 1.5, "masa_celular": 50.0}
-		genoma_secuencia = ["Lípido", "Lípido", "ARN_m", "Péptido", "Péptido"]
-	else:
-		var genoma = gestor.mazo_genetico[-1]
-		stats = genoma["fenotipo"]["stats_3d"].duplicate()
-		genoma_secuencia = genoma["secuencia"]
-	
-	integridad_membrana = float(stats.get("integridad_membrana", 100.0))
-	
-	var bono_energia: float = 1.0
-	if is_instance_valid(gestor) and gestor.get("bonos_ancestrales") != null:
-		bono_energia = float(gestor.bonos_ancestrales.get("capacidad_energetica", 1.0))
+	if GestorQuimico.mazo_genetico.is_empty():
+		return
 		
-	energia_maxima = max(float(stats.get("masa_celular", 50.0)) * 100.0, 1000.0) * bono_energia
+	var genoma = GestorQuimico.mazo_genetico[-1]
+	stats = genoma["fenotipo"]["stats_3d"].duplicate()
+	genoma_secuencia = genoma["secuencia"]
+	
+	energia_maxima = max(float(stats.get("masa_celular", 50.0)) * 100.0, 1000.0)
 	energia_libre = energia_maxima
 	
 	_construir_entorno()
 	_construir_protocelula()
+	_generar_anillo_lipidos()
 	
-	# Población inicial del Ecosistema
+	# Ecosistema completo de la Fase 2 original
 	_generar_vesiculas_nutrientes(60)
 	_generar_enjambre_bacterias_rojas(15)
 	
@@ -76,7 +64,6 @@ func _construir_entorno() -> void:
 	env.background_color = Color(0.005, 0.01, 0.01)
 	env.volumetric_fog_enabled = true
 	env.volumetric_fog_density = 0.005
-	env.volumetric_fog_albedo = Color(0.01, 0.02, 0.02)
 	env.glow_enabled = true
 	env.glow_intensity = 2.5
 	
@@ -101,18 +88,20 @@ func _construir_protocelula() -> void:
 	celula_jugador.body_entered.connect(_on_cell_collision)
 	add_child(celula_jugador)
 	
+	# MEMBRANA TRANSLÚCIDA (Invisible hasta hallar el anillo)
 	var radio: float = float(stats.get("radio_celular", 1.5))
-	var membrana := MeshInstance3D.new()
-	membrana.mesh = SphereMesh.new()
-	membrana.mesh.radius = radio
-	membrana.mesh.height = radio * 2.0
+	visual_membrana = MeshInstance3D.new()
+	visual_membrana.mesh = SphereMesh.new()
+	visual_membrana.mesh.radius = radio
+	visual_membrana.mesh.height = radio * 2.0
 	
 	var mat := ShaderMaterial.new()
 	var sh := Shader.new()
 	sh.code = SHADER_MEMBRANA
 	mat.shader = sh
-	membrana.material_override = mat
-	celula_jugador.add_child(membrana)
+	mat.set_shader_parameter("albedo_color", Color(0.0, 0.0, 0.0, 0.0))
+	visual_membrana.material_override = mat
+	celula_jugador.add_child(visual_membrana)
 	
 	var col := CollisionShape3D.new()
 	var col_shape := SphereShape3D.new()
@@ -120,16 +109,19 @@ func _construir_protocelula() -> void:
 	col.shape = col_shape
 	celula_jugador.add_child(col)
 	
-	pivot_camara = Node3D.new()
-	add_child(pivot_camara)
-	camara = Camera3D.new()
-	camara.current = true
-	camara.projection = Camera3D.PROJECTION_PERSPECTIVE
-	camara.fov = 45.0
-	camara.position = Vector3(0, 40.0, 12.0)
-	camara.rotation_degrees = Vector3(-75, 0, 0)
-	pivot_camara.add_child(camara)
+	# NÚCLEO INTERNO DE LA FASE 1
+	var nucleo := MeshInstance3D.new()
+	nucleo.mesh = SphereMesh.new()
+	nucleo.mesh.radius = radio * 0.4
+	nucleo.mesh.height = radio * 0.8
+	var mat_nuc := StandardMaterial3D.new()
+	mat_nuc.albedo_color = Color(0.2, 0.8, 1.0)
+	mat_nuc.emission_enabled = true
+	mat_nuc.emission = Color(0.2, 0.8, 1.0)
+	nucleo.material_override = mat_nuc
+	celula_jugador.add_child(nucleo)
 	
+	# APÉNDICES (Flagelos)
 	var conteo_peptidos: int = 0
 	for macro in genoma_secuencia: 
 		if str(macro) == "Péptido": conteo_peptidos += 1
@@ -141,16 +133,49 @@ func _construir_protocelula() -> void:
 		cyl.bottom_radius = 0.0
 		cyl.height = 2.0
 		flagelo.mesh = cyl
-		
 		var mat_f := StandardMaterial3D.new()
 		mat_f.albedo_color = Color(0.8, 0.3, 0.3)
 		flagelo.material_override = mat_f
-		
 		var angulo: float = (TAU / float(max(1, conteo_peptidos))) * float(i)
 		flagelo.position = Vector3(cos(angulo) * radio, 0, sin(angulo) * radio)
 		celula_jugador.add_child(flagelo)
+	
+	pivot_camara = Node3D.new()
+	add_child(pivot_camara)
+	camara = Camera3D.new()
+	camara.current = true
+	camara.position = Vector3(0, 40.0, 12.0)
+	camara.rotation_degrees = Vector3(-75, 0, 0)
+	pivot_camara.add_child(camara)
 
-# ----------------- ECOSISTEMA DINÁMICO -----------------
+func _generar_anillo_lipidos() -> void:
+	var anillo = RigidBody3D.new()
+	anillo.gravity_scale = 0.0
+	anillo.axis_lock_linear_y = true
+	
+	var angulo = randf() * TAU
+	var distancia = randf_range(30.0, 60.0)
+	anillo.position = Vector3(cos(angulo) * distancia, 0.0, sin(angulo) * distancia)
+	
+	var mesh = MeshInstance3D.new()
+	mesh.mesh = TorusMesh.new()
+	mesh.mesh.inner_radius = 4.0
+	mesh.mesh.outer_radius = 5.0
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.9, 0.8, 0.2)
+	mat.emission_enabled = true
+	mat.emission = Color(0.9, 0.8, 0.2)
+	mesh.material_override = mat
+	anillo.add_child(mesh)
+	
+	var col = CollisionShape3D.new()
+	col.shape = CylinderShape3D.new()
+	col.shape.radius = 5.5
+	anillo.add_child(col)
+	
+	anillo.set_meta("es_anillo", true)
+	add_child(anillo)
+
 func _generar_vesiculas_nutrientes(cantidad: int) -> void:
 	for i in range(cantidad):
 		_instanciar_una_vesicula()
@@ -162,9 +187,8 @@ func _instanciar_una_vesicula() -> void:
 	v.linear_damp = 1.0
 	
 	var ang: float = randf() * TAU
-	var d: float = randf_range(30.0, 200.0)
-	var base_pos: Vector3 = celula_jugador.position if is_instance_valid(celula_jugador) else Vector3.ZERO
-	v.position = base_pos + Vector3(cos(ang)*d, 0, sin(ang)*d)
+	var d: float = randf_range(40.0, 200.0)
+	v.position = Vector3(cos(ang)*d, 0, sin(ang)*d)
 	
 	var mesh := MeshInstance3D.new()
 	var sph := SphereMesh.new()
@@ -197,8 +221,7 @@ func _generar_enjambre_bacterias_rojas(cantidad: int) -> void:
 		
 		var ang: float = randf() * TAU
 		var d: float = randf_range(50.0, 250.0)
-		var base_pos: Vector3 = celula_jugador.position if is_instance_valid(celula_jugador) else Vector3.ZERO
-		rival.position = base_pos + Vector3(cos(ang)*d, 0, sin(ang)*d)
+		rival.position = Vector3(cos(ang)*d, 0, sin(ang)*d)
 		
 		var mesh := MeshInstance3D.new()
 		var sph := SphereMesh.new()
@@ -224,43 +247,38 @@ func _generar_enjambre_bacterias_rojas(cantidad: int) -> void:
 		add_child(rival)
 		lista_bacterias_rojas.append(rival)
 
-# ----------------- RESOLVEDOR DE COLISIONES -----------------
 func _on_cell_collision(body: Node) -> void:
 	if not juego_activo: 
 		return
 		
-	if body.has_meta("es_vesicula"):
+	if body.has_meta("es_anillo") and not meta_lipidos_alcanzada:
+		meta_lipidos_alcanzada = true
+		body.queue_free()
+		
+		var mat = visual_membrana.material_override as ShaderMaterial
+		var t = create_tween()
+		t.tween_method(func(val): mat.set_shader_parameter("albedo_color", val), Color(0.0,0.0,0.0,0.0), Color(0.2, 0.7, 0.5, 0.8), 2.0)
+		energia_libre = energia_maxima
+		
+	elif body.has_meta("es_vesicula") and meta_lipidos_alcanzada:
 		vesiculas_absorbidas += 1
 		energia_libre = min(energia_libre + 150.0, energia_maxima)
 		body.queue_free()
-		
-		# Mantener el equilibrio de masa: Instanciar una nueva vesícula lejos
 		call_deferred("_instanciar_una_vesicula")
-		
-		if celula_jugador.get_child_count() > 1:
-			var visual = celula_jugador.get_child(0)
-			if visual is Node3D:
-				visual.scale += Vector3(0.08, 0.08, 0.08)
-			var collision = celula_jugador.get_child(1)
-			if collision is CollisionShape3D and collision.shape is SphereShape3D:
-				(collision.shape as SphereShape3D).radius += 0.08
 		_actualizar_ui()
 		
-	elif body.has_meta("es_conjugador"):
+	elif body.has_meta("es_conjugador") and meta_lipidos_alcanzada:
 		if vesiculas_absorbidas >= meta_conjugacion:
 			_intercambio_adn_exitoso(body)
 		else:
-			# FIX DE TIPADO LÍNEA 249: Confirmamos que el body es Node3D y lo casteamos antes de acceder a global_position
 			var rival_3d: Node3D = body as Node3D
 			if rival_3d != null:
 				var dir: Vector3 = (celula_jugador.global_position - rival_3d.global_position).normalized()
 				celula_jugador.apply_central_impulse(dir * 60.0)
-				if body is RigidBody3D:
-					(body as RigidBody3D).apply_central_impulse(-dir * 60.0)
 
 func _intercambio_adn_exitoso(rival: Node) -> void:
 	juego_activo = false
-	ui_texto.text = "¡CONJUGACIÓN INICIADA!\nBuscando afinidad electromagnética. Entrando al Duelo Genético..."
+	ui_texto.text = "¡CONJUGACIÓN INICIADA!\nBuscando afinidad electromagnética..."
 	ui_texto.modulate = Color(0.6, 0.2, 1.0)
 	
 	if rival.get_child_count() > 0:
@@ -270,28 +288,20 @@ func _intercambio_adn_exitoso(rival: Node) -> void:
 			t.tween_property(visual, "scale", Vector3.ZERO, 1.5)
 			
 	await get_tree().create_timer(2.0).timeout
-	
-	var gestor = get_node_or_null("/root/GestorQuimico")
-	if is_instance_valid(gestor):
-		gestor.set("fase_evolutiva_actual", 3)
-		if gestor.has_method("transicionar_escena"):
-			gestor.transicionar_escena(3)
+	GestorQuimico.transicionar_escena(3)
 
 func _physics_process(delta: float) -> void:
-	if codex_abierto: return
-	
-	# Simular movimiento browniano/nado para el enjambre de Bacterias Rojas
-	for bacteria in lista_bacterias_rojas:
-		if is_instance_valid(bacteria) and bacteria is RigidBody3D:
-			var ruido: Vector3 = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
-			(bacteria as RigidBody3D).apply_central_force(ruido * 40.0)
-	
 	if not is_instance_valid(celula_jugador) or not juego_activo: 
 		return
 		
+	for bacteria in lista_bacterias_rojas:
+		if is_instance_valid(bacteria) and bacteria is RigidBody3D:
+			var ruido := Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
+			(bacteria as RigidBody3D).apply_central_force(ruido * 40.0)
+			
 	pivot_camara.position = pivot_camara.position.lerp(celula_jugador.position, delta * 5.0)
 	
-	var input_dir: Vector2 = Vector2.ZERO
+	var input_dir := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_W): input_dir.y -= 1.0
 	if Input.is_physical_key_pressed(KEY_S): input_dir.y += 1.0
 	if Input.is_physical_key_pressed(KEY_A): input_dir.x -= 1.0
@@ -299,63 +309,20 @@ func _physics_process(delta: float) -> void:
 	
 	if input_dir != Vector2.ZERO:
 		input_dir = input_dir.normalized()
-		var mov_3d: Vector3 = Vector3(input_dir.x, 0.0, input_dir.y)
-		
-		# FIX DE TIPADO LÍNEA 292: Conversión estricta a float en tiempo de compilación.
+		var mov_3d := Vector3(input_dir.x, 0.0, input_dir.y)
 		var vel_ciliar: float = float(stats.get("velocidad_ciliar", 30.0))
-		var fuerza: Vector3 = mov_3d * vel_ciliar * 3.0 
-		
-		celula_jugador.apply_central_force(fuerza)
-		
-		var ang_obj: float = atan2(mov_3d.x, mov_3d.z)
-		celula_jugador.rotation.y = lerp_angle(celula_jugador.rotation.y, ang_obj, delta * 5.0)
+		celula_jugador.apply_central_force(mov_3d * vel_ciliar * 3.0)
+		celula_jugador.rotation.y = lerp_angle(celula_jugador.rotation.y, atan2(mov_3d.x, mov_3d.z), delta * 5.0)
 	
-	energia_libre -= delta * 12.0
+	# Drenaje brutal si el polímero está desnudo
+	energia_libre -= delta * (12.0 if meta_lipidos_alcanzada else 40.0)
 	_actualizar_ui()
 	
 	if energia_libre <= 0.0:
 		juego_activo = false
-		ui_texto.text = "LISIS OSMÓTICA. Fallo de membrana."
+		ui_texto.text = "LISIS OSMÓTICA. Membrana destruida."
 		await get_tree().create_timer(2.0).timeout
 		get_tree().reload_current_scene()
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.is_echo() and event.keycode == KEY_TAB:
-		_alternar_codex()
-
-func _alternar_codex() -> void:
-	codex_abierto = not codex_abierto
-	var layer = get_node_or_null("CanvasCodex")
-	if layer: 
-		layer.queue_free()
-		get_tree().paused = false 
-	else:
-		get_tree().paused = true 
-		var cc := CanvasLayer.new()
-		cc.name = "CanvasCodex"
-		var bg := ColorRect.new()
-		bg.color = Color(0.01, 0.01, 0.02, 0.95)
-		bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-		cc.add_child(bg)
-		
-		var lbl := RichTextLabel.new()
-		lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
-		lbl.offset_left = 50
-		lbl.offset_top = 50
-		lbl.offset_right = -50
-		lbl.offset_bottom = -50
-		lbl.text = "[center][b]CÓDEX ARCAICO - ENCICLOPEDIA[/b][/center]\n\n[b]Mecánica Actual:[/b]\nAbsorbe Vesículas Orgánicas mediante fagocitosis. Al expandir tu membrana, liberarás plásmidos que atraerán a las Bacterias Rojas para realizar la [b]Conjugación[/b] (Intercambio de ADN cooperativo).\n\n[b]Historial de Convergencia Fósil:[/b]\n"
-		
-		var gestor = get_node_or_null("/root/GestorQuimico")
-		if is_instance_valid(gestor) and gestor.get("registro_fosil") != null:
-			var fosiles: Array = gestor.get("registro_fosil") as Array
-			for f in fosiles:
-				var df: Dictionary = f as Dictionary
-				lbl.text += "- Especie " + str(df.get("era", "")) + " | Genoma: " + str(df.get("genotipo", "")) + "\n"
-				
-		lbl.text += "\n\n[i]Presiona TAB para volver al fluido.[/i]"
-		bg.add_child(lbl)
-		add_child(cc)
 
 func _construir_ui() -> void:
 	var canvas := CanvasLayer.new()
@@ -372,12 +339,15 @@ func _actualizar_ui() -> void:
 	text += "Energía Termodinámica (∆G): " + str(int(energia_libre)) + " / " + str(int(energia_maxima)) + "\n"
 	text += "Vesículas Fagocitadas: " + str(vesiculas_absorbidas) + " / " + str(meta_conjugacion) + "\n"
 	
-	if vesiculas_absorbidas >= meta_conjugacion: 
-		text += "¡ALERTA! Masa Crítica. Impacta una Bacteria Roja para conjugar.\n"
-		ui_texto.modulate = Color(0.2, 1.0, 0.2)
+	if not meta_lipidos_alcanzada:
+		text += "\n[ALERTA CRÍTICA] ¡ENCUENTRA EL ANILLO DE LÍPIDOS PARA SELLAR TU MEMBRANA!"
+		ui_texto.modulate = Color(1.0, 0.2, 0.2)
 	else:
-		text += "Caza alimento. Las células rojas te repelerán.\n"
-		ui_texto.modulate = Color(0.8, 0.8, 0.2)
-		
-	text += "\n[WASD] Navegar | [TAB] Abrir Enciclopedia (Pausa)."
+		if vesiculas_absorbidas >= meta_conjugacion: 
+			text += "\nMasa Crítica. Impacta una Bacteria Roja para conjugar."
+			ui_texto.modulate = Color(0.2, 1.0, 0.2)
+		else:
+			text += "\nCaza alimento. Las células rojas te repelerán."
+			ui_texto.modulate = Color(0.8, 0.8, 0.2)
+			
 	ui_texto.text = text
